@@ -93,9 +93,10 @@ enum class BoardIds : int
     SYNCHRONI_UNO_1_CHANNELS_BOARD = 62,
     OB3000_24_CHANNELS_BOARD = 63,
     BIOLISTENER_BOARD = 64,
+    GLASSES_PROTOTYPE_1 = 65,
     // use it to iterate
     FIRST = PLAYBACK_FILE_BOARD,
-    LAST = BIOLISTENER_BOARD
+    LAST = GLASSES_PROTOTYPE_1
 };
 
 enum class IpProtocolTypes : int

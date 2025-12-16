@@ -82,7 +82,8 @@ BrainFlowBoards::BrainFlowBoards()
             {"61", json::object()},
             {"62", json::object()},
             {"63", json::object()},
-            {"64", json::object()}
+            {"64", json::object()},
+            {"65", json::object()},
         }
     }};
 
@@ -1133,6 +1134,16 @@ BrainFlowBoards::BrainFlowBoards()
         {"temperature_channels", {7}},
         {"battery_channel", 8},
         {"other_channels", {9, 10}}
+    };
+    brainflow_boards_json["boards"]["65"]["default"] =
+    {
+        {"name", "Glasses_Prototype1"},
+        {"sampling_rate", 500},
+        {"package_num_channel", 0},
+        {"timestamp_channel", 22},
+        {"marker_channel", 23},
+        {"num_rows", 5},
+        {"eeg_channels", {1, 2, 3, 4}},
     };
 }
 

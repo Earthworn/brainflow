@@ -43,6 +43,7 @@
 #include "ganglion_wifi.h"
 #include "gforce_dual.h"
 #include "gforce_pro.h"
+#include "glasses_prototype_1.h"
 #include "json.hpp"
 #include "knight.h"
 #include "muse.h"
@@ -55,7 +56,6 @@
 #include "synchroni_board.h"
 #include "synthetic_board.h"
 #include "unicorn_board.h"
-
 using json = nlohmann::json;
 
 
@@ -75,6 +75,7 @@ int prepare_session (int board_id, const char *json_brainflow_input_params)
     std::lock_guard<std::mutex> lock (mutex);
 
     Board::board_logger->info ("incoming json: {}", json_brainflow_input_params);
+    Board::board_logger->info ("board id: {}", board_id);
     struct BrainFlowInputParams params;
     int res = string_to_brainflow_input_params (json_brainflow_input_params, &params);
     if (res != (int)BrainFlowExitCodes::STATUS_OK)
@@ -295,6 +296,10 @@ int prepare_session (int board_id, const char *json_brainflow_input_params)
             break;
         case BoardIds::BIOLISTENER_BOARD:
             board = std::shared_ptr<Board> (new BioListener<8> (board_id, params));
+            break;
+        case BoardIds::GLASSES_PROTOTYPE_1:
+            board = std::shared_ptr<Board> (new GLASSESPROTOTYPE1 (params));
+            Board::board_logger->info ("Created Glasses Board!");
             break;
         default:
             return (int)BrainFlowExitCodes::UNSUPPORTED_BOARD_ERROR;
