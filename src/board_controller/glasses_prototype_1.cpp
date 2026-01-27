@@ -109,7 +109,10 @@ int GLASSESPROTOTYPE1::stop_stream ()
     {
         keep_alive = false;
         is_streaming = false;
-        streaming_thread.join ();
+        if (streaming_thread.joinable ())
+        {
+            streaming_thread.join ();
+        }
         return (int)BrainFlowExitCodes::STATUS_OK;
     }
     else
@@ -131,6 +134,7 @@ int GLASSESPROTOTYPE1::release_session ()
         serial->close_serial_port ();
         delete serial;
         serial = NULL;
+        safe_logger (spdlog::level::info, "Closed Com port");
     }
     return (int)BrainFlowExitCodes::STATUS_OK;
 }
@@ -151,11 +155,15 @@ void GLASSESPROTOTYPE1::read_thread ()
     int num_rows = board_descr["default"]["num_rows"];
     double *package = new double[num_rows];
     // 4.5 Ref Voltage:
-    // Gain is hardcoded to 24
+    double vref = 4.5;
+    // Gain is hardcoded to 12
+    double gain = 12;
     // 2^23 -1 because of sigend 24bit values
-    // LSB = Vref/ (24 * 2^23 -1)
+    double resolution_factor = (int)(pow (2, 23) - 1);
+    // LSB = Vref/ (gain * 2^23 -1)
     // * 1.000.000 to convert to microvolt
-    double eeg_scale = (double)(4.5 / float ((pow (2, 23) - 1)) / 24 * 1000000.);
+    int micro = 1000000;
+    double eeg_scale = (double)(vref / resolution_factor / gain * 1000000.);
     std::vector<int> eeg_channels = board_descr["default"]["eeg_channels"];
 
     while (keep_alive)

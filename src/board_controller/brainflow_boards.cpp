@@ -1140,9 +1140,9 @@ BrainFlowBoards::BrainFlowBoards()
         {"name", "Glasses_Prototype1"},
         {"sampling_rate", 500},
         {"package_num_channel", 0},
-        {"timestamp_channel", 22},
-        {"marker_channel", 23},
-        {"num_rows", 5},
+        {"timestamp_channel", 5},
+        {"marker_channel", 6},
+        {"num_rows", 7},
         {"eeg_channels", {1, 2, 3, 4}},
     };
 }
