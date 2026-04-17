@@ -1,12 +1,14 @@
 #pragma once
 
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
+#include "ble_lib_board.h"
 #include "board.h"
-#include "serial.h"
 
 
-class GLASSESPROTOTYPE2 : public Board
+class GLASSESPROTOTYPE2 : public BLELibBoard
 {
 
 private:
@@ -14,11 +16,13 @@ private:
     bool initialized;
     bool is_streaming;
     std::thread streaming_thread;
+    volatile simpleble_peripheral_t glasses_peripheral;
+    volatile simpleble_adapter_t glasses_adapter;
+    std::pair<simpleble_uuid_t, simpleble_uuid_t> read_notified_characteristics;
+    std::pair<simpleble_uuid_t, simpleble_uuid_t> write_characteristics;
+    std::mutex m;
+    std::condition_variable cv;
 
-    Serial *serial;
-
-    int open_port ();
-    void read_thread ();
 
 public:
     GLASSESPROTOTYPE2 (struct BrainFlowInputParams params);
@@ -30,4 +34,10 @@ public:
     int release_session ();
     int config_board (std::string config, std::string &response);
     int config_board_with_bytes (const char *bytes, int len);
+    void read_thread ();
+    int send_command (std::string config);
+
+    void adapter_1_on_scan_start (simpleble_adapter_t adapter);
+    void adapter_1_on_scan_stop (simpleble_adapter_t adapter);
+    void adapter_1_on_scan_found (simpleble_adapter_t adapter, simpleble_peripheral_t peripheral);
 };

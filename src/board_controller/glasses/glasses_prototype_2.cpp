@@ -16,38 +16,46 @@
 #include "timestamp.h"
 
 
-GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
-    : Board ((int)BoardIds::GLASSES_PROTOTYPE_1, params)
+#define GLASSES_PROTOTYPE_2_SERIVCE_UUID "8f7e6d5c-4b3a-2918-a7b6-c5d4e3f20100"
+#define GLASSES_PROTOTYPE_2_WRITE_UUID "8f7e6d5c-4b3a-2918-a7b6-c5d4e3f20101"
+#define GLASSES_PROTOTYPE_2_READ_NOTIFY_UUID "8f7e6d5c-4b3a-2918-a7b6-c5d4e3f20102"
+
+
+static void glasses_adapter_1_on_scan_start (simpleble_adapter_t adapter, void *board)
 {
-    is_streaming = false;
-    keep_alive = false;
+    ((GLASSESPROTOTYPE2 *)(board))->adapter_1_on_scan_start (adapter);
+}
+
+static void glasses_adapter_1_on_scan_stop (simpleble_adapter_t adapter, void *board)
+{
+    ((GLASSESPROTOTYPE2 *)(board))->adapter_1_on_scan_stop (adapter);
+}
+
+static void glasses_adapter_1_on_scan_found (
+    simpleble_adapter_t adapter, simpleble_peripheral_t peripheral, void *board)
+{
+    ((GLASSESPROTOTYPE2 *)(board))->adapter_1_on_scan_found (adapter, peripheral);
+}
+
+static void glasses_read_notify_callback (simpleble_peripheral_t handle, simpleble_uuid_t service,
+    simpleble_uuid_t characteristic, const uint8_t *data, size_t size, void *board)
+{
+    ((GLASSESPROTOTYPE2 *)(board))->read_thread ();
+}
+
+GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
+    : BLELibBoard ((int)BoardIds::GLASSES_PROTOTYPE_2, params)
+{
     initialized = false;
+    glasses_adapter = NULL;
+    glasses_peripheral = NULL;
+    is_streaming = false;
 }
 
 GLASSESPROTOTYPE2::~GLASSESPROTOTYPE2 ()
 {
     skip_logs = true;
     release_session ();
-}
-int GLASSESPROTOTYPE2::open_port ()
-{
-    if (serial->is_port_open ())
-    {
-        safe_logger (spdlog::level::err, "port {} already open", serial->get_port_name ());
-        return (int)BrainFlowExitCodes::PORT_ALREADY_OPEN_ERROR;
-    }
-
-    safe_logger (spdlog::level::info, "opening port {}", serial->get_port_name ());
-    int res = serial->open_serial_port ();
-    if (res < 0)
-    {
-        safe_logger (spdlog::level::err,
-            "Make sure you provided correct port name and have permissions to open it(run with "
-            "sudo/admin). Also, close all other apps using this port.");
-        return (int)BrainFlowExitCodes::UNABLE_TO_OPEN_PORT_ERROR;
-    }
-    safe_logger (spdlog::level::trace, "port {} is open", serial->get_port_name ());
-    return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
 int GLASSESPROTOTYPE2::prepare_session ()
@@ -57,86 +65,151 @@ int GLASSESPROTOTYPE2::prepare_session ()
         safe_logger (spdlog::level::info, "Session is already prepared");
         return (int)BrainFlowExitCodes::STATUS_OK;
     }
-    if (params.serial_port.empty ())
+
+    size_t adapter_count = simpleble_adapter_get_count ();
+    if (adapter_count == 0)
     {
-        safe_logger (spdlog::level::err, "serial port is empty");
-        return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
-    }
-    safe_logger (spdlog::level::info, "Create Serial Port");
-
-    serial = Serial::create (params.serial_port.c_str (), this);
-    serial->set_custom_baudrate (9600);
-
-
-    int port_open = open_port ();
-    if (port_open != (int)BrainFlowExitCodes::STATUS_OK)
-    {
-        delete serial;
-        serial = NULL;
-        return port_open;
+        safe_logger (spdlog::level::err, "No Bluetooth adapters found");
+        return (int)BrainFlowExitCodes::UNABLE_TO_OPEN_PORT_ERROR;
     }
 
-    initialized = true;
-    return (int)BrainFlowExitCodes::STATUS_OK;
+    glasses_adapter = simpleble_adapter_get_handle (0);
+    if (glasses_adapter == NULL)
+    {
+        safe_logger (spdlog::level::err, "Failed to get Bluetooth adapter");
+        return (int)BrainFlowExitCodes::UNABLE_TO_OPEN_PORT_ERROR;
+    }
+
+    simpleble_adapter_set_callback_on_scan_start (
+        glasses_adapter, ::glasses_adapter_1_on_scan_start, (void *)this);
+
+    simpleble_adapter_set_callback_on_scan_stop (
+        glasses_adapter, ::glasses_adapter_1_on_scan_stop, (void *)this);
+
+    simpleble_adapter_set_callback_on_scan_found (
+        glasses_adapter, ::glasses_adapter_1_on_scan_found, (void *)this);
+
+#ifdef _WIN32
+    Sleep (1000);
+#else
+    usleep (1000000);
+#endif
+
+    if (!simpleble_adapter_is_bluetooth_enabled ())
+    {
+        safe_logger (spdlog::level::err, "Bluetooth is not enabled");
+    }
+
+    simpleble_adapter_scan_start (glasses_adapter);
+
+    int res = (int)BrainFlowExitCodes::STATUS_OK;
+
+    std::unique_lock<std::mutex> lk (m);
+    auto sec = std::chrono::seconds (1);
+
+    if (!cv.wait_for (lk, sec, [this] { return glasses_peripheral != NULL; }))
+    {
+        safe_logger (spdlog::level::err, "Failed to find glasses during scan");
+        res = (int)BrainFlowExitCodes::UNABLE_TO_OPEN_PORT_ERROR;
+    }
+    else
+    {
+        safe_logger (spdlog::level::info, "Glasses found during scan");
+    }
+
+
+    simpleble_adapter_scan_stop (glasses_adapter);
+
+    if (res == (int)BrainFlowExitCodes::STATUS_OK)
+    {
+        // for safety
+
+        for (int i = 0; i < 3; i++)
+        {
+            if (simpleble_peripheral_connect (glasses_peripheral) == SIMPLEBLE_SUCCESS)
+            {
+                safe_logger (spdlog::level::info, "Connected to glasses");
+                res = (int)BrainFlowExitCodes::STATUS_OK;
+                break;
+            }
+            else
+            {
+                safe_logger (spdlog::level::warn, "Failed to connect to glasses: {}/3", i);
+                res = (int)BrainFlowExitCodes::BOARD_NOT_READY_ERROR;
+#ifdef _WIN32
+                Sleep (1000);
+#else
+                sleep (1);
+#endif
+            }
+        }
+    }
+
+    int num_chars_found = 0;
+
+    if (res == (int)BrainFlowExitCodes::STATUS_OK)
+    {
+        size_t services_count = simpleble_peripheral_services_count (glasses_peripheral);
+        for (size_t i = 0; i < services_count; i++)
+        {
+            simpleble_service_t service;
+            if (simpleble_peripheral_services_get (glasses_peripheral, i, &service) !=
+                SIMPLEBLE_SUCCESS)
+            {
+                safe_logger (
+                    spdlog::level::err, "Failed to get service {} for glasses", service.uuid.value);
+                res = (int)BrainFlowExitCodes::GENERAL_ERROR;
+            }
+
+            if (strcmp (service.uuid.value, GLASSES_PROTOTYPE_2_SERIVCE_UUID) == 0)
+            {
+                for (size_t j = 0; j < service.characteristic_count; j++)
+                {
+                    if (strcmp (service.characteristics[j].uuid.value,
+                            GLASSES_PROTOTYPE_2_READ_NOTIFY_UUID) == 0)
+                    {
+                        if (simpleble_peripheral_notify (glasses_peripheral, service.uuid,
+                                service.characteristics[j].uuid, ::glasses_read_notify_callback,
+                                (void *)this) == SIMPLEBLE_SUCCESS)
+                        {
+                            read_notified_characteristics =
+                                std::pair<simpleble_uuid_t, simpleble_uuid_t> (
+                                    service.uuid, service.characteristics[j].uuid);
+                            num_chars_found++;
+                        }
+                        else
+                        {
+                            safe_logger (spdlog::level::err, "Failed to notify for {} {}",
+                                service.uuid.value, service.characteristics[j].uuid.value);
+                            res = (int)BrainFlowExitCodes::GENERAL_ERROR;
+                        }
+                    }
+                    if (strcmp (service.characteristics[j].uuid.value,
+                            GLASSES_PROTOTYPE_2_WRITE_UUID) == 0)
+                    {
+                        write_characteristics = std::pair<simpleble_uuid_t, simpleble_uuid_t> (
+                            service.uuid, service.characteristics[j].uuid);
+                        num_chars_found++;
+                    }
+                }
+            }
+        }
+    }
 }
 
 int GLASSESPROTOTYPE2::start_stream (int buffer_size, const char *streamer_params)
 {
-    if (is_streaming)
-    {
-        safe_logger (spdlog::level::err, "Streaming thread already running");
-        return (int)BrainFlowExitCodes::STREAM_ALREADY_RUN_ERROR;
-    }
-
-
-    int res = prepare_for_acquisition (buffer_size, streamer_params);
-    if (res != (int)BrainFlowExitCodes::STATUS_OK)
-    {
-        return res;
-    }
-
-    keep_alive = true;
-    streaming_thread = std::thread ([this] { this->read_thread (); });
-    is_streaming = true;
-    safe_logger (spdlog::level::info, "Started Session");
-
-    return (int)BrainFlowExitCodes::STATUS_OK;
+    // TODO;
 }
 
 int GLASSESPROTOTYPE2::stop_stream ()
 {
-    if (is_streaming)
-    {
-        keep_alive = false;
-        is_streaming = false;
-        if (streaming_thread.joinable ())
-        {
-            streaming_thread.join ();
-        }
-        return (int)BrainFlowExitCodes::STATUS_OK;
-    }
-    else
-    {
-        return (int)BrainFlowExitCodes::STREAM_THREAD_IS_NOT_RUNNING;
-    }
+    // TODO
 }
 
 int GLASSESPROTOTYPE2::release_session ()
 {
-    if (initialized)
-    {
-        stop_stream ();
-        free_packages ();
-        initialized = false;
-    }
-    if (serial)
-    {
-        serial->close_serial_port ();
-        delete serial;
-        serial = NULL;
-        safe_logger (spdlog::level::info, "Closed Com port");
-    }
-    return (int)BrainFlowExitCodes::STATUS_OK;
+    // TODO
 }
 
 void GLASSESPROTOTYPE2::read_thread ()
@@ -220,4 +293,70 @@ int GLASSESPROTOTYPE2::config_board (std::string config, std::string &response)
 int GLASSESPROTOTYPE2::config_board_with_bytes (const char *bytes, int len)
 {
     return (int)BrainFlowExitCodes::UNSUPPORTED_BOARD_ERROR;
+}
+
+void GLASSESPROTOTYPE2::adapter_1_on_scan_start (simpleble_adapter_t adapter)
+{
+    safe_logger (spdlog::level::info, "Scan started");
+}
+
+void GLASSESPROTOTYPE2::adapter_1_on_scan_stop (simpleble_adapter_t adapter)
+{
+    safe_logger (spdlog::level::info, "Scan stopped");
+}
+
+void GLASSESPROTOTYPE2::adapter_1_on_scan_found (
+    simpleble_adapter_t adapter, simpleble_peripheral_t peripheral)
+{
+    char *peripheral_identified = simpleble_peripheral_identifier (peripheral);
+    char *peripheral_address = simpleble_peripheral_address (peripheral);
+    bool found = false;
+
+    if (!params.mac_address.empty ())
+    {
+        if (strcmp (peripheral_address, params.mac_address.c_str ()) == 0)
+        {
+            found = true;
+        }
+    }
+    else
+    {
+        if (!params.serial_number.empty ())
+        {
+            if (strcmp (peripheral_identified, params.serial_number.c_str ()) == 0)
+            {
+                found = true;
+            }
+        }
+        else
+        {
+            if (strncmp (peripheral_identified, "Ganglion", 8) == 0)
+            {
+                found = true;
+            }
+            // for some reason device may send Simblee instead Ganglion name
+            else if (strncmp (peripheral_identified, "Simblee", 7) == 0)
+            {
+                found = true;
+            }
+        }
+    }
+
+    safe_logger (spdlog::level::trace, "address {}", peripheral_address);
+    simpleble_free (peripheral_address);
+    safe_logger (spdlog::level::trace, "identifier {}", peripheral_identified);
+    simpleble_free (peripheral_identified);
+
+    if (found)
+    {
+        {
+            std::lock_guard<std::mutex> lk (m);
+            glasses_peripheral = peripheral;
+        }
+        cv.notify_one ();
+    }
+    else
+    {
+        simpleble_peripheral_release_handle (peripheral);
+    }
 }
