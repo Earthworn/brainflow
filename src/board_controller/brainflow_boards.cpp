@@ -1145,6 +1145,16 @@ BrainFlowBoards::BrainFlowBoards()
         {"num_rows", 7},
         {"eeg_channels", {1, 2, 3, 4}},
     };
+        brainflow_boards_json["boards"]["66"]["default"] =
+    {
+        {"name", "Glasses_Prototype2"},
+        {"sampling_rate", 250},
+        {"package_num_channel", 0},
+        {"timestamp_channel", 9},
+        {"marker_channel", 10},
+        {"num_rows", 11},
+        {"eeg_channels", {1, 2, 3, 4, 5, 6, 7, 8}}
+    };
 }
 
 BrainFlowBoards boards_struct;

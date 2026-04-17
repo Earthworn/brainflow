@@ -44,6 +44,7 @@
 #include "gforce_dual.h"
 #include "gforce_pro.h"
 #include "glasses_prototype_1.h"
+#include "glasses_prototype_2.h"
 #include "json.hpp"
 #include "knight.h"
 #include "muse.h"
@@ -299,6 +300,10 @@ int prepare_session (int board_id, const char *json_brainflow_input_params)
             break;
         case BoardIds::GLASSES_PROTOTYPE_1:
             board = std::shared_ptr<Board> (new GLASSESPROTOTYPE1 (params));
+            Board::board_logger->info ("Created Glasses Board!");
+            break;
+        case BoardIds::GLASSES_PROTOTYPE_2:
+            board = std::shared_ptr<Board> (new GLASSESPROTOTYPE2 (params));
             Board::board_logger->info ("Created Glasses Board!");
             break;
         default:

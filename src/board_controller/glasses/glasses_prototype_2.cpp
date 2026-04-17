@@ -12,11 +12,11 @@
 #include <unistd.h>
 #endif
 
-#include "glasses_prototype_1.h"
+#include "glasses_prototype_2.h"
 #include "timestamp.h"
 
 
-GLASSESPROTOTYPE1::GLASSESPROTOTYPE1 (struct BrainFlowInputParams params)
+GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
     : Board ((int)BoardIds::GLASSES_PROTOTYPE_1, params)
 {
     is_streaming = false;
@@ -24,12 +24,12 @@ GLASSESPROTOTYPE1::GLASSESPROTOTYPE1 (struct BrainFlowInputParams params)
     initialized = false;
 }
 
-GLASSESPROTOTYPE1::~GLASSESPROTOTYPE1 ()
+GLASSESPROTOTYPE2::~GLASSESPROTOTYPE2 ()
 {
     skip_logs = true;
     release_session ();
 }
-int GLASSESPROTOTYPE1::open_port ()
+int GLASSESPROTOTYPE2::open_port ()
 {
     if (serial->is_port_open ())
     {
@@ -50,7 +50,7 @@ int GLASSESPROTOTYPE1::open_port ()
     return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
-int GLASSESPROTOTYPE1::prepare_session ()
+int GLASSESPROTOTYPE2::prepare_session ()
 {
     if (initialized)
     {
@@ -80,7 +80,7 @@ int GLASSESPROTOTYPE1::prepare_session ()
     return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
-int GLASSESPROTOTYPE1::start_stream (int buffer_size, const char *streamer_params)
+int GLASSESPROTOTYPE2::start_stream (int buffer_size, const char *streamer_params)
 {
     if (is_streaming)
     {
@@ -103,7 +103,7 @@ int GLASSESPROTOTYPE1::start_stream (int buffer_size, const char *streamer_param
     return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
-int GLASSESPROTOTYPE1::stop_stream ()
+int GLASSESPROTOTYPE2::stop_stream ()
 {
     if (is_streaming)
     {
@@ -121,7 +121,7 @@ int GLASSESPROTOTYPE1::stop_stream ()
     }
 }
 
-int GLASSESPROTOTYPE1::release_session ()
+int GLASSESPROTOTYPE2::release_session ()
 {
     if (initialized)
     {
@@ -139,7 +139,7 @@ int GLASSESPROTOTYPE1::release_session ()
     return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
-void GLASSESPROTOTYPE1::read_thread ()
+void GLASSESPROTOTYPE2::read_thread ()
 {
     /*
     Byte 1: Data value for EEG channel 1
@@ -157,7 +157,7 @@ void GLASSESPROTOTYPE1::read_thread ()
     // 4.5 Ref Voltage:
     double vref = 4.5;
     // Gain is hardcoded to 12
-    double gain = 12;
+    double gain = 1;
     // 2^23 -1 because of sigend 24bit values
     double resolution_factor = (int)(pow (2, 23) - 1);
     // LSB = Vref/ (gain * 2^23 -1)
@@ -212,12 +212,12 @@ void GLASSESPROTOTYPE1::read_thread ()
     delete[] package;
 }
 
-int GLASSESPROTOTYPE1::config_board (std::string config, std::string &response)
+int GLASSESPROTOTYPE2::config_board (std::string config, std::string &response)
 {
     return (int)BrainFlowExitCodes::UNSUPPORTED_BOARD_ERROR;
 }
 
-int GLASSESPROTOTYPE1::config_board_with_bytes (const char *bytes, int len)
+int GLASSESPROTOTYPE2::config_board_with_bytes (const char *bytes, int len)
 {
     return (int)BrainFlowExitCodes::UNSUPPORTED_BOARD_ERROR;
 }

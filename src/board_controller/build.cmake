@@ -85,7 +85,8 @@ SET (BOARD_CONTROLLER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/synchroni/synchroni_board.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/neuropawn/knight.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/biolistener/biolistener.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/glasses_prototype_1.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/glasses/glasses_prototype_1.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/glasses/glasses_prototype_2.cpp
 )
 
 include (${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/ant_neuro/build.cmake)
@@ -154,6 +155,7 @@ target_include_directories (
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/synchroni/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/neuropawn/inc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/biolistener/inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/board_controller/glasses/inc
 )
 
 target_compile_definitions(${BOARD_CONTROLLER_NAME} PRIVATE NOMINMAX BRAINFLOW_VERSION=${BRAINFLOW_VERSION})
