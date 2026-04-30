@@ -20,6 +20,8 @@
 #define GLASSES_PROTOTYPE_2_WRITE_UUID "8f7e6d5c-4b3a-2918-a7b6-c5d4e3f20101"
 #define GLASSES_PROTOTYPE_2_READ_NOTIFY_UUID "8f7e6d5c-4b3a-2918-a7b6-c5d4e3f20102"
 
+#define GLASSES_PROTOTYPE_2_IDENTIFIER "EEG Glasses Prototype 2"
+
 
 static void glasses_adapter_1_on_scan_start (simpleble_adapter_t adapter, void *board)
 {
@@ -40,7 +42,8 @@ static void glasses_adapter_1_on_scan_found (
 static void glasses_read_notify_callback (simpleble_peripheral_t handle, simpleble_uuid_t service,
     simpleble_uuid_t characteristic, const uint8_t *data, size_t size, void *board)
 {
-    ((GLASSESPROTOTYPE2 *)(board))->read_thread ();
+    ((GLASSESPROTOTYPE2 *)(board))
+        ->read_thread (simpleble_uuid_t (service), simpleble_uuid_t (characteristic), data, size);
 }
 
 GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
@@ -64,6 +67,12 @@ int GLASSESPROTOTYPE2::prepare_session ()
     {
         safe_logger (spdlog::level::info, "Session is already prepared");
         return (int)BrainFlowExitCodes::STATUS_OK;
+    }
+
+    if (!init_dll_loader ())
+    {
+        safe_logger (spdlog::level::err, "Failed to init dll_loader");
+        return (int)BrainFlowExitCodes::GENERAL_ERROR;
     }
 
     size_t adapter_count = simpleble_adapter_get_count ();
@@ -195,42 +204,153 @@ int GLASSESPROTOTYPE2::prepare_session ()
             }
         }
     }
+
+    if (res == (int)BrainFlowExitCodes::STATUS_OK)
+    {
+        initialized = true;
+    }
 }
 
 int GLASSESPROTOTYPE2::start_stream (int buffer_size, const char *streamer_params)
 {
-    // TODO;
+    if (!initialized)
+    {
+        return (int)BrainFlowExitCodes::BOARD_NOT_CREATED_ERROR;
+    }
+    if (is_streaming)
+    {
+        return (int)BrainFlowExitCodes::STREAM_ALREADY_RUN_ERROR;
+    }
+    int res = prepare_for_acquisition (buffer_size, streamer_params);
+    if (res == (int)BrainFlowExitCodes::STATUS_OK)
+    {
+        res = send_command ("b");
+    }
+    if (res == (int)BrainFlowExitCodes::STATUS_OK)
+    {
+        is_streaming = true;
+    }
+
+    return res;
 }
 
 int GLASSESPROTOTYPE2::stop_stream ()
 {
-    // TODO
+    if (glasses_peripheral == NULL)
+    {
+        return (int)BrainFlowExitCodes::BOARD_NOT_CREATED_ERROR;
+    }
+    int res = (int)BrainFlowExitCodes::STATUS_OK;
+    if (is_streaming)
+    {
+        res = send_command ("s");
+    }
+    else
+    {
+        res = (int)BrainFlowExitCodes::STREAM_THREAD_IS_NOT_RUNNING;
+    }
+    is_streaming = false;
+    return res;
 }
 
 int GLASSESPROTOTYPE2::release_session ()
 {
-    // TODO
+    if (initialized)
+    {
+        // repeat it multiple times, failure here may lead to a crash
+        for (int i = 0; i < 2; i++)
+        {
+            stop_stream ();
+            // need to wait for notifications to stop triggered before unsubscribing, otherwise
+            // macos fails inside simpleble with timeout
+#ifdef _WIN32
+            Sleep (2000);
+#else
+            sleep (2);
+#endif
+            if (simpleble_peripheral_unsubscribe (glasses_peripheral,
+                    read_notified_characteristics.first,
+                    read_notified_characteristics.second) != SIMPLEBLE_SUCCESS)
+            {
+                safe_logger (spdlog::level::err, "failed to unsubscribe for {} {}",
+                    read_notified_characteristics.first.value,
+                    read_notified_characteristics.second.value);
+            }
+            else
+            {
+                break;
+            }
+        }
+        free_packages ();
+        initialized = false;
+    }
+    if (glasses_peripheral != NULL)
+    {
+        bool is_connected = false;
+        if (simpleble_peripheral_is_connected (glasses_peripheral, &is_connected) ==
+            SIMPLEBLE_SUCCESS)
+        {
+            if (is_connected)
+            {
+                simpleble_peripheral_disconnect (glasses_peripheral);
+            }
+        }
+        simpleble_peripheral_release_handle (glasses_peripheral);
+        glasses_peripheral = NULL;
+    }
+    if (glasses_adapter != NULL)
+    {
+        simpleble_adapter_release_handle (glasses_adapter);
+        glasses_adapter = NULL;
+    }
+
+    return (int)BrainFlowExitCodes::STATUS_OK;
 }
 
-void GLASSESPROTOTYPE2::read_thread ()
+int GLASSESPROTOTYPE2::send_command (std::string config)
+{
+    if (!initialized)
+    {
+        return (int)BrainFlowExitCodes::BOARD_NOT_CREATED_ERROR;
+    }
+
+    if (config.empty ())
+    {
+        return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+    }
+
+    uint8_t *command = new uint8_t[config.size ()];
+    memcpy (command, config.c_str (), config.size ());
+    if (simpleble_peripheral_write_command (glasses_peripheral, write_characteristics.first,
+            write_characteristics.second, command, config.size ()) != SIMPLEBLE_SUCCESS)
+    {
+        safe_logger (spdlog::level::err, "failed to send command {} to device", config.c_str ());
+        delete[] command;
+        return (int)BrainFlowExitCodes::BOARD_WRITE_ERROR;
+    }
+    delete[] command;
+    return (int)BrainFlowExitCodes::STATUS_OK;
+}
+
+void GLASSESPROTOTYPE2::read_thread (
+    simpleble_uuid_t service, simpleble_uuid_t characteristic, const uint8_t *data, size_t size)
 {
     /*
-    Byte 1: Data value for EEG channel 1
+    One Notification should contains:
+    5 eeg packages
+    3 accel values each 16 bit signed int
+    3 gyro values each 16 bit signed int
+    Every eeg package contains 9 bytes:
+    First 24 bits:  (1100 + LOFF_STATP + LOFF_STATN + bits[4:7] of the GPIO register).
     ,
-    Byte 2: Data value for EEG channel 2
-    ,
-    Byte 3: Data value for EEG channel 3
-    ,
-    Byte 4: Data value for EEG channel 4
-    ,
-    \n
+    8 times 24 bits Data values for EEG channel 1-8
     */
+    int num_packages = 5;
     int num_rows = board_descr["default"]["num_rows"];
     double *package = new double[num_rows];
+
     // 4.5 Ref Voltage:
     double vref = 4.5;
-    // Gain is hardcoded to 12
-    double gain = 1;
     // 2^23 -1 because of sigend 24bit values
     double resolution_factor = (int)(pow (2, 23) - 1);
     // LSB = Vref/ (gain * 2^23 -1)
@@ -238,56 +358,119 @@ void GLASSESPROTOTYPE2::read_thread ()
     int micro = 1000000;
     double eeg_scale = (double)(vref / resolution_factor / gain * 1000000.);
     std::vector<int> eeg_channels = board_descr["default"]["eeg_channels"];
+    std::vector<int> accel_channels = board_descr["default"]["accel_channels"];
+    std::vector<int> gyro_channels = board_descr["default"]["gyro_channels"];
 
-    while (keep_alive)
+
+    std::vector<uint8_t> one_package;
+
+    // Get accel and gyro values one time per notification, because they are the same for all eeg
+    // packages in one notification
+
+    int16_t accel_gyro_values[6];
+    for (size_t i = 0; i < 6; i++)
     {
-        // Read Line
-        std::string line;
-        unsigned char c;
-        while (true)
-        {
-            char current_char = serial->read_from_serial_port (&c, 1);
-            if (current_char != 1)
-                continue;
-            if (c == '\n')
-                break;
-            line += c;
-        }
-
-        if (!line.empty () && line.back () == '\r')
-            line.pop_back ();
-
-        std::vector<int> values;
-
-        std::string delimiter = ", ";
-        size_t start = 0;
-        size_t end = line.find (delimiter);
-
-        while (end != std::string::npos)
-        {
-            values.push_back (std::stoi (line.substr (start, end - start)));
-            start = end + delimiter.length ();
-            end = line.find (delimiter, start);
-        }
-        values.push_back (std::stoi (line.substr (start)));
-
-        if (values.size () != eeg_channels.size ())
-        {
-            continue;
-        }
-        // eeg
-        for (unsigned int i = 0; i < eeg_channels.size (); i++)
-        {
-            package[eeg_channels[i]] = eeg_scale * values[i];
-        }
-        push_package (package);
+        accel_gyro_values[i] = (int16_t)((data[3 + eeg_channels.size () * 3 + i * 2] << 8) |
+            data[3 + eeg_channels.size () * 3 + 1 + i * 2]);
     }
+
+
+    for (size_t i = 0; i < num_packages; i++)
+    {
+        one_package = std::vector<uint8_t> (data + i * num_packages, data + (i + 1) * num_packages);
+
+        int32_t status_value = (one_package[0] << 16) | (one_package[1] << 8) | one_package[2];
+
+        // extract EEG values and convert to microvolts
+        for (size_t j = 0; j < eeg_channels.size (); j++)
+        {
+            int32_t eeg_value = (one_package[3 + j * 3] << 16) | (one_package[4 + j * 3] << 8) |
+                one_package[5 + j * 3];
+            // convert to microvolts
+            package[eeg_channels[j]] = (double)eeg_value * eeg_scale;
+        }
+
+        // Get accel and gyro values
+        for (size_t j = 0; j < accel_channels.size (); j++)
+        {
+            package[accel_channels[j]] = (double)accel_gyro_values[j];
+        }
+        for (size_t j = 0; j < gyro_channels.size (); j++)
+        {
+            package[gyro_channels[j]] = (double)accel_gyro_values[3 + j];
+        }
+
+        push_package (package);
+        // clear package for next iteration
+        for (int k = 0; k < num_rows; k++)
+        {
+            package[k] = 0.0;
+        }
+    }
+
     delete[] package;
 }
 
 int GLASSESPROTOTYPE2::config_board (std::string config, std::string &response)
 {
-    return (int)BrainFlowExitCodes::UNSUPPORTED_BOARD_ERROR;
+    if (!(update_gain_from_config (config) == 0))
+    {
+        return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+    }
+    return send_command (config);
+}
+
+int GLASSESPROTOTYPE2::update_gain_from_config (std::string config)
+{
+    // command can be x (CHANNEL, POWER_DOWN, GAIN_SET, INPUT_TYPE_SET, BIAS_SET, SRB2_SET,
+    // SRB1_SET) X 		○ Gain_Set:
+    //          0 = Gain 1
+    //          1 = Gain 2
+    //          2 = Gain 4
+    //          3 = Gain 6
+    //          4 = Gain 8
+    //          5 = Gain 12
+    //          6 = Gain 24(default)
+
+    if (config.size () != 0 && config[0] != 'x' || config[8] != 'X')
+    {
+        // No gain update
+        return 0;
+    }
+
+    int config_gain = config[4] - '0';
+    if (config_gain < 0 || config_gain > 6)
+    {
+        safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
+        return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+    }
+    switch (config_gain)
+    {
+        case 0:
+            gain = 1;
+            break;
+        case 1:
+            gain = 2;
+            break;
+        case 2:
+            gain = 4;
+            break;
+        case 3:
+            gain = 6;
+            break;
+        case 4:
+            gain = 8;
+            break;
+        case 5:
+            gain = 12;
+            break;
+        case 6:
+            gain = 24;
+            break;
+        default:
+            safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
+            return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+    }
 }
 
 int GLASSESPROTOTYPE2::config_board_with_bytes (const char *bytes, int len)
@@ -330,12 +513,8 @@ void GLASSESPROTOTYPE2::adapter_1_on_scan_found (
         }
         else
         {
-            if (strncmp (peripheral_identified, "Ganglion", 8) == 0)
-            {
-                found = true;
-            }
-            // for some reason device may send Simblee instead Ganglion name
-            else if (strncmp (peripheral_identified, "Simblee", 7) == 0)
+            // Identify by name and mac address
+            if (strcmp (peripheral_identified, GLASSES_PROTOTYPE_2_IDENTIFIER) == 0)
             {
                 found = true;
             }

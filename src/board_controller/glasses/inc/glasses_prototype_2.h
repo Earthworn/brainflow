@@ -15,6 +15,7 @@ private:
     volatile bool keep_alive;
     bool initialized;
     bool is_streaming;
+    int gain = 24;
     std::thread streaming_thread;
     volatile simpleble_peripheral_t glasses_peripheral;
     volatile simpleble_adapter_t glasses_adapter;
@@ -34,8 +35,10 @@ public:
     int release_session ();
     int config_board (std::string config, std::string &response);
     int config_board_with_bytes (const char *bytes, int len);
-    void read_thread ();
+    void read_thread (simpleble_uuid_t service, simpleble_uuid_t characteristic,
+        const uint8_t *data, size_t size);
     int send_command (std::string config);
+    int update_gain_from_config (std::string config);
 
     void adapter_1_on_scan_start (simpleble_adapter_t adapter);
     void adapter_1_on_scan_stop (simpleble_adapter_t adapter);
