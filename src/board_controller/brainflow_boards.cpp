@@ -1153,10 +1153,10 @@ BrainFlowBoards::BrainFlowBoards()
         {"package_num_channel", 0},
         {"timestamp_channel", 9},
         {"marker_channel", 10},
-        {"num_rows", 11},
+        {"num_rows", 18},
         {"eeg_channels", {1, 2, 3, 4, 5, 6, 7, 8}},
-        {"accel_channels", {12, 13, 14}},
-        {"gyro_channels", {15, 16, 17}}
+        {"accel_channels", {11, 12, 13}},
+        {"gyro_channels", {14, 15, 16}}
     };
 }
 
