@@ -432,14 +432,14 @@ void GLASSESPROTOTYPE2::read_thread (
 
 int GLASSESPROTOTYPE2::config_board (std::string config, std::string &response)
 {
-    if (!(update_gain_from_config (config) == 0))
+    if (!(update_gain_from_config (config) == BrainFlowExitCodes::STATUS_OK))
     {
         return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
     }
     return send_command (config);
 }
 
-int GLASSESPROTOTYPE2::update_gain_from_config (std::string config)
+BrainFlowExitCodes GLASSESPROTOTYPE2::update_gain_from_config (std::string config)
 {
     // command can be x (CHANNEL, POWER_DOWN, GAIN_SET, INPUT_TYPE_SET, BIAS_SET, SRB2_SET,
     // SRB1_SET) X 		○ Gain_Set:
@@ -450,18 +450,21 @@ int GLASSESPROTOTYPE2::update_gain_from_config (std::string config)
     //          4 = Gain 8
     //          5 = Gain 12
     //          6 = Gain 24(default)
+    int pre_index = 0;
+    int gain_index = 3; 
+    int post_index = 8;
 
     if (config.size () != 0 && config[0] != 'x' || config[8] != 'X')
     {
         // No gain update
-        return 0;
+        return BrainFlowExitCodes::STATUS_OK;
     }
 
-    int config_gain = config[4] - '0';
+    int config_gain = config[3] - '0';
     if (config_gain < 0 || config_gain > 6)
     {
         safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
-        return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+        return BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
     }
     switch (config_gain)
     {
@@ -486,10 +489,12 @@ int GLASSESPROTOTYPE2::update_gain_from_config (std::string config)
         case 6:
             gain = 24;
             break;
-        default:
-            safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
-            return (int)BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
+            default:
+                safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
+            return BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
     }
+    safe_logger (spdlog::level::info, "Gain updated to {} from config: {}", gain, config);
+    return BrainFlowExitCodes::STATUS_OK;
 }
 
 int GLASSESPROTOTYPE2::config_board_with_bytes (const char *bytes, int len)

@@ -38,7 +38,7 @@ public:
     void read_thread (simpleble_uuid_t service, simpleble_uuid_t characteristic,
         const uint8_t *data, size_t size);
     int send_command (std::string config);
-    int update_gain_from_config (std::string config);
+    BrainFlowExitCodes update_gain_from_config (std::string config);
 
     void adapter_1_on_scan_start (simpleble_adapter_t adapter);
     void adapter_1_on_scan_stop (simpleble_adapter_t adapter);
