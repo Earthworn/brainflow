@@ -53,6 +53,8 @@ GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
     glasses_adapter = NULL;
     glasses_peripheral = NULL;
     is_streaming = false;
+    gain = 24;
+    package_counter = 0;
 }
 
 GLASSESPROTOTYPE2::~GLASSESPROTOTYPE2 ()
@@ -363,6 +365,7 @@ void GLASSESPROTOTYPE2::read_thread (
     8 times 24 bits Data values for EEG channel 1-8
     */
 
+
     // Cache board descriptor values locally to avoid repeated JSON access
     static const int num_packages = 5;
     static const int num_rows = board_descr["default"]["num_rows"];         // from board config
@@ -373,15 +376,22 @@ void GLASSESPROTOTYPE2::read_thread (
     std::vector<int> gyro_channels = board_descr["default"]["gyro_channels"]; // from board config
     static const int num_gyro_channels = gyro_channels.size ();
     static const int package_size = 3 + 8 * 3; // 27 bytes
-
+    static const int accel_gyro_size = 6 * 2; // 6 bytes for accel and gyro values
     // Pre-calculated scale factor
     static const double resolution_factor = (double)(pow (2, 23) - 1);
     static const double vref = 4.5;
-    double eeg_scale = eeg_scale = (double)(vref / resolution_factor / gain * 1000000.);
+    double eeg_scale = (double)(vref / resolution_factor / gain * 1000000.);
 
 
     // Single pre-allocated package buffer
     double *package = new double[num_rows];
+
+    if (size != num_packages * package_size + accel_gyro_size)
+    {
+        safe_logger (spdlog::level::err, "Unexpected package size: {}", size);
+        delete[] package;
+        return;
+    }
 
     // Get accel and gyro values one time (indices after all EEG packages)
     int accel_gyro_offset = num_packages * package_size;
@@ -403,14 +413,28 @@ void GLASSESPROTOTYPE2::read_thread (
 
         const uint8_t *pkg_data = data + i * package_size;
 
+        // Check package header (first 3 bytes)
+        if (pkg_data[0] != 0xC0)
+        {
+            safe_logger (spdlog::level::err, "Invalid package header: {}. Package {} skipped.", pkg_data[0], i);
+            continue; // Skip this package
+        }
+        this->package_counter++;
+
         // Extract EEG values directly from raw data - no intermediate vectors
         for (int j = 0; j < num_eeg_channels; j++)
         {
+            // we shift the data to the left and then back to the right to sign-extend the 24-bit value to 32 bits
             int32_t eeg_value =
-                (pkg_data[3 + j * 3] << 16) | (pkg_data[4 + j * 3] << 8) | pkg_data[5 + j * 3];
+                (pkg_data[3 + j * 3] << 24) | (pkg_data[4 + j * 3] << 16) | (pkg_data[5 + j * 3] << 8);
+
+            // Sign-extend the 24-bit value to 32 bits
+            eeg_value = eeg_value >> 8;
+            
             package[eeg_channels[j]] = (double)eeg_value * eeg_scale; // Directly to channel
         }
 
+        package[0] = (double)this->package_counter; // Set package counter in first channel
         // Set accel channels (11, 12, 13)
         package[accel_channels[0]] = (double)accel_gyro_values[0];
         package[accel_channels[1]] = (double)accel_gyro_values[1];
@@ -422,7 +446,7 @@ void GLASSESPROTOTYPE2::read_thread (
         package[gyro_channels[2]] = (double)accel_gyro_values[5];
 
         // Set timestamp and marker
-        package[9] = 0.0;  // timestamp - will be set elsewhere
+        package[9] = get_timestamp ();
         package[10] = 0.0; // marker
 
         push_package (package);

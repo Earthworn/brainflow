@@ -15,7 +15,7 @@ private:
     volatile bool keep_alive;
     bool initialized;
     bool is_streaming;
-    int gain = 24;
+    int gain;
     std::thread streaming_thread;
     volatile simpleble_peripheral_t glasses_peripheral;
     volatile simpleble_adapter_t glasses_adapter;
@@ -23,6 +23,7 @@ private:
     std::pair<simpleble_uuid_t, simpleble_uuid_t> write_characteristics;
     std::mutex m;
     std::condition_variable cv;
+    int package_counter;
 
 
 public:
