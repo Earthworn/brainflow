@@ -237,11 +237,6 @@ int GLASSESPROTOTYPE2::start_stream (int buffer_size, const char *streamer_param
     }
     int res = prepare_for_acquisition (buffer_size, streamer_params);
 
-
-    if (res == (int)BrainFlowExitCodes::STATUS_OK)
-    {
-        res = send_command ("b");
-    }
     if (res == (int)BrainFlowExitCodes::STATUS_OK)
     {
         is_streaming = true;
