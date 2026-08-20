@@ -15,7 +15,7 @@ private:
     volatile bool keep_alive;
     bool initialized;
     bool is_streaming;
-    int gain;
+    int gain[8];
     std::thread streaming_thread;
     volatile simpleble_peripheral_t glasses_peripheral;
     volatile simpleble_adapter_t glasses_adapter;

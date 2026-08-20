@@ -53,7 +53,49 @@ GLASSESPROTOTYPE2::GLASSESPROTOTYPE2 (struct BrainFlowInputParams params)
     glasses_adapter = NULL;
     glasses_peripheral = NULL;
     is_streaming = false;
-    gain = 24;
+
+    if (params.other_info != "" && sizeof(params.other_info.c_str ()) == 8)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            char gain_temp = params.other_info.c_str()[i];
+            switch (gain_temp)
+            {
+                case '0':
+                    gain[i] = 1;
+                    break;
+                case '1':
+                    gain[i] = 2;
+                    break;
+                case '2':
+                    gain[i] = 4;
+                    break;
+                case '3':
+                    gain[i] = 6;
+                    break;
+                case '4':
+                    gain[i] = 8;
+                    break;
+                case '5':
+                    gain[i] = 12;
+                    break;
+                case '6':
+                    gain[i] = 24;
+                    break;
+                    default:
+                        safe_logger (spdlog::level::err, "Invalid gain value in params.other_info for channel {}: {}. Set to default 24.", i, gain_temp);
+                        gain[i] = 24;
+            }
+        }
+        safe_logger (spdlog::level::info, "Gain values set from params.other_info: Ch1: {} Ch2: {} Ch3: {} Ch4: {} Ch5: {} Ch6: {} Ch7: {} Ch8: {}", gain[0], gain[1], gain[2], gain[3], gain[4], gain[5], gain[6], gain[7]);
+    } else
+    {
+        safe_logger (spdlog::level::info, "No gain values provided in params.other_info. Set to default 24.");
+        for (int i = 0; i < 8; i++)
+        {
+            gain[i] = 24;
+        }
+    }
     package_counter = 0;
 }
 
@@ -375,8 +417,14 @@ void GLASSESPROTOTYPE2::read_thread (
     // Pre-calculated scale factor
     static const double resolution_factor = (double)(pow (2, 23) - 1);
     static const double vref = 4.5;
-    double eeg_scale = (double)(vref / resolution_factor / gain * 1000000.);
+    double eeg_scale[8];
 
+    static const int accel_resolution = 16384; //16384 LSB/g for ±2g
+    static const int gyro_resolution = 65;     //65 LSB/(°/s) for ±500°/s
+    for (int i = 0; i < 8; i++)
+    {
+        eeg_scale[i] = (double)(vref / resolution_factor / gain[i] * 1000000.);
+    }
 
     // Single pre-allocated package buffer
     double *package = new double[num_rows];
@@ -394,7 +442,7 @@ void GLASSESPROTOTYPE2::read_thread (
     for (int i = 0; i < 6; i++)
     {
         size_t index = accel_gyro_offset + i * 2;
-        accel_gyro_values[i] = (int16_t)((data[index] << 8) | data[index + 1]);
+        accel_gyro_values[i] = (int16_t)((data[index + 1] << 8) | data[index]);
     }
 
     // Process each EEG package directly from raw data
@@ -426,22 +474,22 @@ void GLASSESPROTOTYPE2::read_thread (
             // Sign-extend the 24-bit value to 32 bits
             eeg_value = eeg_value >> 8;
             
-            package[eeg_channels[j]] = (double)eeg_value * eeg_scale; // Directly to channel
+            package[eeg_channels[j]] = (double)eeg_value * eeg_scale[j]; // Directly to channel
         }
 
         package[0] = (double)this->package_counter; // Set package counter in first channel
         // Set accel channels (11, 12, 13)
-        package[accel_channels[0]] = (double)accel_gyro_values[0];
-        package[accel_channels[1]] = (double)accel_gyro_values[1];
-        package[accel_channels[2]] = (double)accel_gyro_values[2];
+        package[accel_channels[0]] = (double)accel_gyro_values[0] / (double)accel_resolution;
+        package[accel_channels[1]] = (double)accel_gyro_values[1] / (double)accel_resolution;
+        package[accel_channels[2]] = (double)accel_gyro_values[2] / (double)accel_resolution;
 
         // Set gyro channels (14, 15, 16)
-        package[gyro_channels[0]] = (double)accel_gyro_values[3];
-        package[gyro_channels[1]] = (double)accel_gyro_values[4];
-        package[gyro_channels[2]] = (double)accel_gyro_values[5];
+        package[gyro_channels[0]] = (double)accel_gyro_values[3] / (double)gyro_resolution;
+        package[gyro_channels[1]] = (double)accel_gyro_values[4] / (double)gyro_resolution;
+        package[gyro_channels[2]] = (double)accel_gyro_values[5] / (double)gyro_resolution;
 
         // Set timestamp and marker
-        package[9] = get_timestamp ();
+        package[9] = get_timestamp();
         package[10] = 0.0; // marker
 
         push_package (package);
@@ -485,34 +533,35 @@ BrainFlowExitCodes GLASSESPROTOTYPE2::update_gain_from_config (std::string confi
         safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
         return BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
     }
+    int channel = config[1] - '0';
     switch (config_gain)
     {
         case 0:
-            gain = 1;
+            gain[channel] = 1;
             break;
         case 1:
-            gain = 2;
+            gain[channel] = 2;
             break;
         case 2:
-            gain = 4;
+            gain[channel] = 4;
             break;
         case 3:
-            gain = 6;
+            gain[channel] = 6;
             break;
         case 4:
-            gain = 8;
+            gain[channel] = 8;
             break;
         case 5:
-            gain = 12;
+            gain[channel] = 12;
             break;
         case 6:
-            gain = 24;
+            gain[channel] = 24;
             break;
             default:
                 safe_logger (spdlog::level::err, "Invalid gain value in config: {}", config);
             return BrainFlowExitCodes::INVALID_ARGUMENTS_ERROR;
     }
-    safe_logger (spdlog::level::info, "Gain updated to {} from config: {}", gain, config);
+    safe_logger (spdlog::level::info, "Gain updated to {} from config: {}", gain[channel], config);
     return BrainFlowExitCodes::STATUS_OK;
 }
 
