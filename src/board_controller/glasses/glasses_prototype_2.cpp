@@ -521,7 +521,7 @@ BrainFlowExitCodes GLASSESPROTOTYPE2::update_gain_from_config (std::string confi
     int gain_index = 3; 
     int post_index = 8;
 
-    if (config.size () != 0 && config[0] != 'x' || config[8] != 'X')
+    if (config.size() < 9 || config[0] != 'x' || config[8] != 'X')
     {
         // No gain update
         return BrainFlowExitCodes::STATUS_OK;
