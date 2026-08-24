@@ -428,26 +428,29 @@ void GLASSESPROTOTYPE2::read_thread (
 
     // Single pre-allocated package buffer
     double *package = new double[num_rows];
+    bool ble_error = false; // Reset BLE error flag for this notification
 
     if (size != num_packages * package_size + accel_gyro_size)
     {
         safe_logger (spdlog::level::err, "Unexpected package size: {}", size);
-        delete[] package;
-        return;
+        ble_error = true;
     }
-
     // Get accel and gyro values one time (indices after all EEG packages)
     int accel_gyro_offset = num_packages * package_size;
     int16_t accel_gyro_values[6];
-    for (int i = 0; i < 6; i++)
+    if (!ble_error)
     {
+        for (int i = 0; i < 6; i++)
+        {
         size_t index = accel_gyro_offset + i * 2;
         accel_gyro_values[i] = (int16_t)((data[index + 1] << 8) | data[index]);
+        }
     }
 
     // Process each EEG package directly from raw data
     for (int i = 0; i < num_packages; i++)
-    {
+    {   
+        bool package_error = false; // Reset package error flag for this package
         // Clear package in-place (faster than memset)
         for (int k = 0; k < num_rows; k++)
         {
@@ -457,42 +460,71 @@ void GLASSESPROTOTYPE2::read_thread (
         const uint8_t *pkg_data = data + i * package_size;
 
         // Check package header (first 3 bytes)
-        if (pkg_data[0] != 0xC0)
+        if (ble_error == false && (pkg_data[0] & 0xF0) != 0xC0 ) // Only log the first error in this notification
         {
-            safe_logger (spdlog::level::err, "Invalid package header: {}. Package {} skipped.", pkg_data[0], i);
-            continue; // Skip this package
+            safe_logger (spdlog::level::err, "Invalid package header: {}. Package {}.", pkg_data[0], i);
+            if (pkg_data[0] == 0x00)
+            {
+                safe_logger (spdlog::level::warn, "Package {} was marked as faulty by Glasses",i);
+                package_error = true;
+            }
+            else
+            {
+                safe_logger (spdlog::level::warn, "BLE Error: Package {}, Header: {}", i, pkg_data[0]);
+                package_error = true;
+            }
         }
         this->package_counter++;
 
-        // Extract EEG values directly from raw data - no intermediate vectors
-        for (int j = 0; j < num_eeg_channels; j++)
+        // Fill data with zeros while error
+        if (ble_error || package_error)
         {
-            // we shift the data to the left and then back to the right to sign-extend the 24-bit value to 32 bits
-            int32_t eeg_value =
-                (pkg_data[3 + j * 3] << 24) | (pkg_data[4 + j * 3] << 16) | (pkg_data[5 + j * 3] << 8);
+            for (int j = 0; j < num_eeg_channels; j++)
+            {
+                package[eeg_channels[j]] = 0.0;
+            }
+            package[0] = (double)this->package_counter; // Set package counter in first channel
 
-            // Sign-extend the 24-bit value to 32 bits
-            eeg_value = eeg_value >> 8;
-            
-            package[eeg_channels[j]] = (double)eeg_value * eeg_scale[j]; // Directly to channel
+            package[accel_channels[0]] = 0.0;
+            package[accel_channels[1]] = 0.0;
+            package[accel_channels[2]] = 0.0;
+            package[gyro_channels[0]] = 0.0;
+            package[gyro_channels[1]] = 0.0;
+            package[gyro_channels[2]] = 0.0;
+        } 
+        else // Extract EEG values directly from raw data - no intermediate vectors
+        {
+            for (int j = 0; j < num_eeg_channels; j++)
+            {
+                // we shift the data to the left and then back to the right to sign-extend the 24-bit value to 32 bits
+                int32_t eeg_value =
+                    (pkg_data[3 + j * 3] << 24) | (pkg_data[4 + j * 3] << 16) | (pkg_data[5 + j * 3] << 8);
+
+                // Sign-extend the 24-bit value to 32 bits
+                eeg_value = eeg_value >> 8;
+                
+                package[eeg_channels[j]] = (double)eeg_value * eeg_scale[j]; // Directly to channel
+            }
+
+            package[0] = (double)this->package_counter; // Set package counter in first channel
+            // Set accel channels (11, 12, 13)
+            package[accel_channels[0]] = (double)accel_gyro_values[0] / (double)accel_resolution;
+            package[accel_channels[1]] = (double)accel_gyro_values[1] / (double)accel_resolution;
+            package[accel_channels[2]] = (double)accel_gyro_values[2] / (double)accel_resolution;
+
+            // Set gyro channels (14, 15, 16)
+            package[gyro_channels[0]] = (double)accel_gyro_values[3] / (double)gyro_resolution;
+            package[gyro_channels[1]] = (double)accel_gyro_values[4] / (double)gyro_resolution;
+            package[gyro_channels[2]] = (double)accel_gyro_values[5] / (double)gyro_resolution;
         }
-
-        package[0] = (double)this->package_counter; // Set package counter in first channel
-        // Set accel channels (11, 12, 13)
-        package[accel_channels[0]] = (double)accel_gyro_values[0] / (double)accel_resolution;
-        package[accel_channels[1]] = (double)accel_gyro_values[1] / (double)accel_resolution;
-        package[accel_channels[2]] = (double)accel_gyro_values[2] / (double)accel_resolution;
-
-        // Set gyro channels (14, 15, 16)
-        package[gyro_channels[0]] = (double)accel_gyro_values[3] / (double)gyro_resolution;
-        package[gyro_channels[1]] = (double)accel_gyro_values[4] / (double)gyro_resolution;
-        package[gyro_channels[2]] = (double)accel_gyro_values[5] / (double)gyro_resolution;
+        
 
         // Set timestamp and marker
         package[9] = get_timestamp();
         package[10] = 0.0; // marker
 
         push_package (package);
+        package_error = false; // Reset package error flag for next package
     }
     delete[] package;
 }
